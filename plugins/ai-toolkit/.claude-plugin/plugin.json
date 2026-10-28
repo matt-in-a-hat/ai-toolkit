@@ -1,0 +1,10 @@
+{
+  "name": "ai-toolkit",
+  "description": "Reusable skills, starting with Silverstripe + DDEV worktree lanes.",
+  "author": {
+    "name": "Matt Lang"
+  },
+  "homepage": "https://github.com/matt-in-a-hat/ai-toolkit",
+  "repository": "https://github.com/matt-in-a-hat/ai-toolkit",
+  "license": "MIT"
+}

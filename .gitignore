@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Node (in case a plugin ever adds tooling)
+node_modules/
+
+# Local settings backups produced by install.sh
+*.bak

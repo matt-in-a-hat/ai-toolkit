@@ -1,0 +1,63 @@
+{
+  "_comment": "matt-in-a-hat/ai-toolkit shared Claude Code defaults. Plugins can't ship a permissions block, so this is a manual reference: copy the tiers you want into a project's .claude/settings.json. A HUMAN must do this — Claude Code's self-modification guardrail blocks an agent from writing permission rules for you. `./install.sh --settings` will merge this into the current project (or ~/.claude with --global) when a human runs it — unioning the allow/ask/deny lists and stripping this comment. Personal overrides go in .claude/settings.local.json (git-ignored). Precedence: deny > ask > allow; local overrides shared.",
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(tree:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(ddev npm run dev:*)",
+      "Bash(ddev npm run once:*)",
+      "Bash(ddev npm run lint:*)",
+      "Bash(ddev npm run test:js:*)",
+      "Bash(ddev exec phpunit:*)",
+      "Bash(ddev exec phpcs:*)",
+      "Bash(ddev composer install:*)",
+      "Bash(ddev sake dev/build:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run test:js:*)",
+      "Bash(npm run playwright:*)",
+      "WebSearch",
+      "mcp__claude_ai_Atlassian__getJiraIssue"
+    ],
+    "ask": [
+      "Bash(git rebase:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh api:*)"
+    ],
+    "deny": [
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push * master*)",
+      "Bash(git push * :master*)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./terraform/**.tfstate*)",
+      "Read(./terraform/**/.terraform/**)"
+    ]
+  },
+  "sandbox": {
+    "enabled": false,
+    "autoAllowBashIfSandboxed": false
+  }
+}

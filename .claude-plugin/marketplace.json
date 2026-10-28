@@ -1,0 +1,16 @@
+{
+  "name": "matt-in-a-hat",
+  "owner": {
+    "name": "Matt Lang"
+  },
+  "metadata": {
+    "description": "Personal marketplace of reusable Claude Code skills."
+  },
+  "plugins": [
+    {
+      "name": "ai-toolkit",
+      "source": "./plugins/ai-toolkit",
+      "description": "Reusable skills, starting with Silverstripe + DDEV worktree lanes."
+    }
+  ]
+}
