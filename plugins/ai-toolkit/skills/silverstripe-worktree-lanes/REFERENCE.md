@@ -174,12 +174,37 @@ any lane. Default location is the repo-root `db.sql.gz`; override per invocation
 globally with `LANE_DB_DUMP`. Refresh it by re-exporting from a known-good environment whenever
 the canonical content drifts.
 
+### Assets
+
+A new lane has no uploaded files — `public/assets` (or `assets/` on older projects) is
+gitignored, so `git worktree add` never brings it. There's no one-size answer: some projects
+run fine with no assets (images just break), others carry gigabytes. So `create-lane.sh` makes
+it a choice via `--assets`, and the skill asks the user first:
+
+- **`none`** (default) — leave the assets dir empty. The script prints the commands to clone
+  or import later if the lane turns out to need them.
+- **`clone`** — copy the main checkout's assets dir on the host before first boot. On macOS
+  this uses `cp -c` (APFS `clonefile`): near-instant and no extra disk until a file changes.
+  On Linux it uses `cp --reflink=auto`, which clones on Btrfs/XFS and falls back to a real
+  copy elsewhere.
+- **`<archive>`** — `ddev import-files --source=<file>` imports a `.tar.gz`, `.zip` or
+  directory into the project's upload dir.
+
+Why not share one assets dir? A **symlink** to the main checkout dangles inside the
+container — DDEV only mounts the project dir, so the link's target doesn't exist there. An
+**extra Docker mount** of main's assets does work, but then every lane writes into main's
+files, the same shared-state trap the per-lane database exists to avoid.
+
+Assets survive `reset-lane.sh` (the dir is gitignored and the reset's `git clean` skips
+ignored files), so this is a create-time choice. Override the dir with `LANE_ASSETS_DIR`.
+
 ## Per-lane cost & mitigations
 
 | Cost | Mitigation |
 |------|-----------|
 | `composer install` (large vendor) | `ddev composer install` shares a global Composer cache across all DDEV projects → network-free after the first lane. Don't symlink `vendor/` across branches — different branches need different dependencies. |
 | Content database | One canonical `db.sql.gz`; `ddev import-db --file=…` per lane. |
+| Assets | Opt-in via `--assets`; `clone` is a copy-on-write clone on APFS, so even large assets dirs cost next to nothing. |
 | `dev/build` | Run once per lane after import (create-lane), and again only on reset. The main reason lanes are long-running: you pay it per *lane*, not per *task*. |
 | `npm install` (frontend build) | `create-lane.sh` runs `ddev npm install` only when the lane has a `package.json`; DDEV shares an npm cache across projects → network-cheap after the first lane. It sets `PUPPETEER_SKIP_DOWNLOAD=true` for the install so a transitive puppeteer dep doesn't abort fetching a non-existent arm64 Chromium binary (see gotchas). |
 

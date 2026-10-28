@@ -52,8 +52,15 @@ before; `--mode drop-name` and the rationale for each trap live there.
 1. **Confirm the prerequisites above are met.** Check a `.worktreeinclude` exists and a
    canonical DB dump is reachable. Fix any gap using `REFERENCE.md` before creating a lane —
    local mode needs no `.ddev/config.yaml` edit.
-2. **Create or reset the lane.** For a brand-new slot run `scripts/create-lane.sh <lane>
-   [--base <ref>] [--db <dump>]`. For an existing slot starting a new task run
+2. **Create or reset the lane.** For a brand-new slot, first **ask the user how the lane
+   should get its assets** (unless they've already said) — there's no one-size answer:
+   - **none** (default) — start with an empty assets dir; fine for many tasks, broken images aside.
+   - **clone** — copy the main checkout's assets; a near-instant copy-on-write clone on macOS.
+   - **an archive** — import a `.tar.gz` / `.zip` of assets.
+
+   Then run `scripts/create-lane.sh <lane> [--base <ref>] [--db <dump>] [--assets
+   none|clone|<archive>]`. Assets persist across resets, so this is a create-time choice only.
+   For an existing slot starting a new task run
    `scripts/reset-lane.sh <lane> [--base <ref>]` — it guards against discarding uncommitted or
    unpushed work. Done when the script reports the lane ready, `ddev describe` shows the project
    running, and the lane's own host serves the site — including `/admin`, which must stay on the

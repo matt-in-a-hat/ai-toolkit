@@ -15,7 +15,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: create-lane.sh <lane> [--base <ref>] [--db <dump.sql.gz>] [--root <dir>]
-                              [--mode local|drop-name]
+                              [--mode local|drop-name] [--assets none|clone|<archive>]
 
   <lane>         Short lane id, e.g. "a". Becomes worktree dir "<repo>-wt-<lane>".
   --base <ref>   Base ref to start the lane from    (default: origin's default branch).
@@ -26,9 +26,15 @@ Usage: create-lane.sh <lane> [--base <ref>] [--db <dump.sql.gz>] [--root <dir>]
                            an untracked .ddev/config.local.yaml. Zero shared footprint.
                  drop-name derive the project from the directory name; requires
                            name: removed from the committed .ddev/config.yaml.
+  --assets <a>   none      (default) start with an empty assets dir; prints how to
+                           add them later.
+                 clone     copy the main checkout's assets dir (copy-on-write clone
+                           where the filesystem supports it — near-instant on APFS).
+                 <archive> import a .tar.gz / .zip / dir via `ddev import-files`.
 
 Environment overrides:
   LANE_DB_DUMP        default canonical dump path
+  LANE_ASSETS_DIR     assets dir relative to the repo (default: public/assets, else assets)
   LANE_SAKE           sake invocation (default: vendor/bin/sake)
   LANE_SS_CONFIG_DIR  Silverstripe app config dir (default: app/_config)
   LANE_FLUSH_HOST     host used to flush the web process (default: <canonical>.ddev.site)
@@ -41,12 +47,14 @@ base=""
 db="${LANE_DB_DUMP:-}"
 root=""
 mode="local"
+assets="none"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --base) base="$2"; shift 2 ;;
     --db)   db="$2";   shift 2 ;;
     --root) root="$2"; shift 2 ;;
     --mode) mode="$2"; shift 2 ;;
+    --assets) assets="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -62,6 +70,25 @@ lane_branch="wt/${lane}"
 db="${db:-$repo_root/db.sql.gz}"
 sake="${LANE_SAKE:-vendor/bin/sake}"
 ss_config_dir="${LANE_SS_CONFIG_DIR:-app/_config}"
+
+# Assets have no one-size answer (some projects are fine blank, others carry gigabytes),
+# so the caller chooses. Validate up front so a typo fails before any expensive setup.
+if [[ -n "${LANE_ASSETS_DIR:-}" ]]; then
+  assets_dir="$LANE_ASSETS_DIR"
+elif [[ -d "$repo_root/public" ]]; then
+  assets_dir="public/assets"
+else
+  assets_dir="assets"
+fi
+case "$assets" in
+  none) ;;
+  clone)
+    [[ -d "$repo_root/$assets_dir" ]] || {
+      echo "error: --assets clone, but there is no $assets_dir in $repo_root to clone." >&2; exit 1; } ;;
+  *)
+    [[ -e "$assets" ]] || { echo "error: --assets archive not found: $assets" >&2; exit 1; }
+    assets="$(cd "$(dirname "$assets")" && pwd)/$(basename "$assets")" ;;
+esac
 
 # Default the base to origin's own default branch rather than assuming main —
 # plenty of Silverstripe projects integrate on develop.
@@ -236,9 +263,28 @@ EOF
   echo "    wrote $ss_config_dir/lane-local.yml (whitelists ${project}.ddev.site)"
 fi
 
+# Clone assets on the HOST, before boot. A symlink to the main checkout's assets won't
+# do: DDEV only mounts the project dir, so the link dangles inside the container. A
+# copy-on-write clone (APFS clonefile on macOS, reflink on Linux) is near-instant and
+# takes no extra disk until a file changes, and the lane can't touch main's files.
+if [[ "$assets" == "clone" ]]; then
+  echo "==> Cloning $assets_dir from the main checkout"
+  mkdir -p "$lane_dir/$assets_dir"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    cp -Rpc "$repo_root/$assets_dir/." "$lane_dir/$assets_dir/" 2>/dev/null \
+      || cp -Rp "$repo_root/$assets_dir/." "$lane_dir/$assets_dir/"
+  else
+    cp -a --reflink=auto "$repo_root/$assets_dir/." "$lane_dir/$assets_dir/"
+  fi
+fi
+
 cd "$lane_dir"
 echo "==> ddev start"
 ddev start
+if [[ "$assets" != "none" && "$assets" != "clone" ]]; then
+  echo "==> ddev import-files --source=$assets"
+  ddev import-files --source="$assets"
+fi
 echo "==> ddev composer install (shared global cache — network-free after first lane)"
 ddev composer install
 # Frontend deps: only on projects that have a package.json (many SS projects are
@@ -271,3 +317,9 @@ if [[ "$restricts_hosts" -eq 1 ]]; then
 fi
 
 echo "==> Lane '${lane}' ready at https://${project}.ddev.site"
+if [[ "$assets" == "none" ]]; then
+  echo "    No assets copied — ${assets_dir} starts empty. To add them later:"
+  echo "      clone from main:   cp -Rpc '$repo_root/$assets_dir/.' '$lane_dir/$assets_dir/'"
+  echo "                         (macOS; on Linux use cp -a --reflink=auto)"
+  echo "      import an archive: (cd '$lane_dir' && ddev import-files --source=<assets.tar.gz>)"
+fi
