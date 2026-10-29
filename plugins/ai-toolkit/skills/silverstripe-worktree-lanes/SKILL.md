@@ -66,9 +66,11 @@ before; `--mode drop-name` and the rationale for each trap live there.
    task run `scripts/reset-lane.sh <lane> [--base <ref>]` — it guards against discarding uncommitted or
    unpushed work. Both scripts end with a **self-check** — the lane's host serves the site,
    `/admin` stays on the lane host, and git hooks are present — and exit non-zero if any part
-   fails. Done when the script exits 0 and prints "ready". **Relay every `warning:` and `error:`
-   line to the user verbatim**, even on success; never report a lane ready when the script
-   exited non-zero.
+   fails. Done when the script exits 0 and prints "ready". **Never truncate the script's
+   output** (no `| tail`, `| head`) — a warning mid-run is easy to cut off. **Relay every
+   `warning:` and `error:` line to the user verbatim**, even on success; never report a lane
+   ready when the script exited non-zero. A missing DB dump is an error; pass `--db none` only
+   when the user wants an empty database.
 3. **Work in the lane, one task per lane.** Keep each lane scoped to a single task so its
    branch, DB state, and containers stay coherent; start the next task by resetting the lane,
    not by piling a second task into it.

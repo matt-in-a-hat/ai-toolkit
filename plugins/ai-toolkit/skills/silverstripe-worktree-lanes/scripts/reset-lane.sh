@@ -15,7 +15,8 @@ Usage: reset-lane.sh <lane> [--base <ref>] [--branch <name>] [--db <dump.sql.gz>
   --branch <b>   Branch to (re)create at the base    (default: wt/<lane>). Pass the
                  lane's own name if it was created with --branch, or it moves to wt/<lane>.
   --db <file>    Canonical DB dump to re-import       (default: $LANE_DB_DUMP,
-                 else db.sql.gz at the repo root).
+                 else db.sql.gz at the repo root). A missing dump is an error;
+                 pass --db none to keep the lane's current database.
   --root <dir>   Parent dir the worktree lives in     (default: alongside repo).
   --force        Skip the uncommitted/unpushed-work guard.
 
@@ -50,6 +51,17 @@ root="${root:-$(dirname "$repo_root")}"
 lane_dir="$root/${repo_name}-wt-${lane}"
 lane_branch="${branch:-wt/${lane}}"
 db="${db:-$repo_root/db.sql.gz}"
+
+# Resolve the dump against the caller's cwd before cd'ing into the lane (see create-lane.sh).
+if [[ "$db" == "none" ]]; then
+  db=""
+elif [[ -f "$db" ]]; then
+  db="$(cd "$(dirname "$db")" && pwd)/$(basename "$db")"
+else
+  echo "error: no DB dump at $db. Pass --db <file>, set LANE_DB_DUMP, or --db none to keep" >&2
+  echo "       the lane's current database." >&2
+  exit 1
+fi
 sake="${LANE_SAKE:-vendor/bin/sake}"
 ss_config_dir="${LANE_SS_CONFIG_DIR:-app/_config}"
 
@@ -163,11 +175,11 @@ if [[ -f "$lane_fragment" ]] && ! grep -q '^After:' "$lane_fragment"; then
   fi
 fi
 
-if [[ -f "$db" ]]; then
+if [[ -n "$db" ]]; then
   echo "==> Re-importing DB from $db"
   ddev import-db --file="$db"
 else
-  echo "warning: no DB dump at $db — skipping import." >&2
+  echo "    skipping DB re-import (--db none) — keeping the lane's current database"
 fi
 echo "==> dev/build flush=1"
 ddev exec "$sake" dev/build flush=1

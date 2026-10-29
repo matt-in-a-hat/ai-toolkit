@@ -22,7 +22,8 @@ Usage: create-lane.sh <lane> [--base <ref>] [--branch <name>] [--db <dump.sql.gz
   --base <ref>   Base ref to start the lane from    (default: origin's default branch).
   --branch <b>   Branch to create for the lane      (default: wt/<lane>).
   --db <file>    Canonical DB dump to import        (default: $LANE_DB_DUMP,
-                 else db.sql.gz at the repo root).
+                 else db.sql.gz at the repo root). A missing dump is an error;
+                 pass --db none to deliberately start with an empty database.
   --root <dir>   Parent dir to create the worktree in (default: alongside repo).
   --mode <m>     local     (default) keep committed name:, pin per-lane project via
                            an untracked .ddev/config.local.yaml. Zero shared footprint.
@@ -73,6 +74,19 @@ root="${root:-$(dirname "$repo_root")}"
 lane_dir="$root/${repo_name}-wt-${lane}"
 lane_branch="${branch:-wt/${lane}}"
 db="${db:-$repo_root/db.sql.gz}"
+
+# Resolve the dump now, against the caller's cwd: the script later cd's into the lane,
+# where a relative path no longer points anywhere. A missing dump fails here, before any
+# setup, rather than warning mid-run and quietly building an empty database.
+if [[ "$db" == "none" ]]; then
+  db=""
+elif [[ -f "$db" ]]; then
+  db="$(cd "$(dirname "$db")" && pwd)/$(basename "$db")"
+else
+  echo "error: no DB dump at $db. Pass --db <file>, set LANE_DB_DUMP, or --db none for an" >&2
+  echo "       empty database." >&2
+  exit 1
+fi
 sake="${LANE_SAKE:-vendor/bin/sake}"
 ss_config_dir="${LANE_SS_CONFIG_DIR:-app/_config}"
 
@@ -326,11 +340,11 @@ if [[ -f package.json ]]; then
   # function comment). Run after deps are present so the hook manager binary exists.
   ensure_worktree_git_hooks "$lane_dir"
 fi
-if [[ -f "$db" ]]; then
+if [[ -n "$db" ]]; then
   echo "==> ddev import-db --file=$db"
   ddev import-db --file="$db"
 else
-  echo "warning: no DB dump at $db — skipping import. Pass --db or set LANE_DB_DUMP." >&2
+  echo "    skipping DB import (--db none) — the lane starts with an empty database"
 fi
 echo "==> dev/build (once per lane)"
 ddev exec "$sake" dev/build flush=1
