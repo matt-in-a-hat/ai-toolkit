@@ -7,20 +7,24 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: retire-lane.sh <lane> [--root <dir>] [--force]
+Usage: retire-lane.sh <lane> [--branch <name>] [--root <dir>] [--force]
 
   <lane>      Short lane id, e.g. "a".
+  --branch <b>  Lane branch to delete (default: wt/<lane>).
   --root <dir>  Parent dir the worktree lives in (default: alongside repo).
   --force     Skip the uncommitted/unpushed-work guard and force worktree removal.
 EOF
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
+[[ "$1" == -h || "$1" == --help ]] && { usage; exit 0; }
 lane="$1"; shift
 root=""
+branch=""
 force=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --branch) branch="$2"; shift 2 ;;
     --root) root="$2"; shift 2 ;;
     --force) force=1;  shift ;;
     -h|--help) usage; exit 0 ;;
@@ -32,7 +36,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 repo_name="$(basename "$repo_root")"
 root="${root:-$(dirname "$repo_root")}"
 lane_dir="$root/${repo_name}-wt-${lane}"
-lane_branch="wt/${lane}"
+lane_branch="${branch:-wt/${lane}}"
 
 [[ -d "$lane_dir" ]] || { echo "error: no lane at $lane_dir." >&2; exit 1; }
 

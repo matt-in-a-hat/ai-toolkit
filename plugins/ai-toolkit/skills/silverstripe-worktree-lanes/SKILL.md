@@ -58,10 +58,12 @@ before; `--mode drop-name` and the rationale for each trap live there.
    - **clone** — copy the main checkout's assets; a near-instant copy-on-write clone on macOS.
    - **an archive** — import a `.tar.gz` / `.zip` of assets.
 
-   Then run `scripts/create-lane.sh <lane> [--base <ref>] [--db <dump>] [--assets
-   none|clone|<archive>]`. Assets persist across resets, so this is a create-time choice only.
-   For an existing slot starting a new task run
-   `scripts/reset-lane.sh <lane> [--base <ref>]` — it guards against discarding uncommitted or
+   Then run `scripts/create-lane.sh <lane> [--base <ref>] [--branch <name>] [--db <dump>]
+   [--assets none|clone|<archive>]`. Assets persist across resets, so this is a create-time
+   choice only. The lane's branch defaults to `wt/<lane>`; if the user names it, pass
+   `--branch` rather than renaming it afterwards, and pass the same `--branch` to
+   `reset-lane.sh` and `retire-lane.sh` for that lane. For an existing slot starting a new
+   task run `scripts/reset-lane.sh <lane> [--base <ref>]` — it guards against discarding uncommitted or
    unpushed work. Both scripts end with a **self-check** — the lane's host serves the site,
    `/admin` stays on the lane host, and git hooks are present — and exit non-zero if any part
    fails. Done when the script exits 0 and prints "ready". **Relay every `warning:` and `error:`

@@ -7,10 +7,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: reset-lane.sh <lane> [--base <ref>] [--db <dump.sql.gz>] [--root <dir>] [--force]
+Usage: reset-lane.sh <lane> [--base <ref>] [--branch <name>] [--db <dump.sql.gz>]
+                             [--root <dir>] [--force]
 
   <lane>         Short lane id, e.g. "a" (the existing lane to rotate).
   --base <ref>   Base ref to reset onto              (default: origin's default branch).
+  --branch <b>   Branch to (re)create at the base    (default: wt/<lane>). Pass the
+                 lane's own name if it was created with --branch, or it moves to wt/<lane>.
   --db <file>    Canonical DB dump to re-import       (default: $LANE_DB_DUMP,
                  else db.sql.gz at the repo root).
   --root <dir>   Parent dir the worktree lives in     (default: alongside repo).
@@ -22,14 +25,17 @@ EOF
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
+[[ "$1" == -h || "$1" == --help ]] && { usage; exit 0; }
 lane="$1"; shift
 base=""
+branch=""
 db="${LANE_DB_DUMP:-}"
 root=""
 force=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --base) base="$2"; shift 2 ;;
+    --branch) branch="$2"; shift 2 ;;
     --db)   db="$2";   shift 2 ;;
     --root) root="$2"; shift 2 ;;
     --force) force=1;  shift ;;
@@ -42,7 +48,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 repo_name="$(basename "$repo_root")"
 root="${root:-$(dirname "$repo_root")}"
 lane_dir="$root/${repo_name}-wt-${lane}"
-lane_branch="wt/${lane}"
+lane_branch="${branch:-wt/${lane}}"
 db="${db:-$repo_root/db.sql.gz}"
 sake="${LANE_SAKE:-vendor/bin/sake}"
 ss_config_dir="${LANE_SS_CONFIG_DIR:-app/_config}"

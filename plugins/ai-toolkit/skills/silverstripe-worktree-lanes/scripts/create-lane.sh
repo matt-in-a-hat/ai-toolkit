@@ -14,11 +14,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: create-lane.sh <lane> [--base <ref>] [--db <dump.sql.gz>] [--root <dir>]
-                              [--mode local|drop-name] [--assets none|clone|<archive>]
+Usage: create-lane.sh <lane> [--base <ref>] [--branch <name>] [--db <dump.sql.gz>]
+                              [--root <dir>] [--mode local|drop-name]
+                              [--assets none|clone|<archive>]
 
   <lane>         Short lane id, e.g. "a". Becomes worktree dir "<repo>-wt-<lane>".
   --base <ref>   Base ref to start the lane from    (default: origin's default branch).
+  --branch <b>   Branch to create for the lane      (default: wt/<lane>).
   --db <file>    Canonical DB dump to import        (default: $LANE_DB_DUMP,
                  else db.sql.gz at the repo root).
   --root <dir>   Parent dir to create the worktree in (default: alongside repo).
@@ -42,8 +44,10 @@ EOF
 }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
+[[ "$1" == -h || "$1" == --help ]] && { usage; exit 0; }
 lane="$1"; shift
 base=""
+branch=""
 db="${LANE_DB_DUMP:-}"
 root=""
 mode="local"
@@ -51,6 +55,7 @@ assets="none"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --base) base="$2"; shift 2 ;;
+    --branch) branch="$2"; shift 2 ;;
     --db)   db="$2";   shift 2 ;;
     --root) root="$2"; shift 2 ;;
     --mode) mode="$2"; shift 2 ;;
@@ -66,7 +71,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 repo_name="$(basename "$repo_root")"
 root="${root:-$(dirname "$repo_root")}"
 lane_dir="$root/${repo_name}-wt-${lane}"
-lane_branch="wt/${lane}"
+lane_branch="${branch:-wt/${lane}}"
 db="${db:-$repo_root/db.sql.gz}"
 sake="${LANE_SAKE:-vendor/bin/sake}"
 ss_config_dir="${LANE_SS_CONFIG_DIR:-app/_config}"
