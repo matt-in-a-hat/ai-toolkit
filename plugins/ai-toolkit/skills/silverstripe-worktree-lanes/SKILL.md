@@ -62,9 +62,11 @@ before; `--mode drop-name` and the rationale for each trap live there.
    none|clone|<archive>]`. Assets persist across resets, so this is a create-time choice only.
    For an existing slot starting a new task run
    `scripts/reset-lane.sh <lane> [--base <ref>]` — it guards against discarding uncommitted or
-   unpushed work. Done when the script reports the lane ready, `ddev describe` shows the project
-   running, and the lane's own host serves the site — including `/admin`, which must stay on the
-   lane host, never the main one.
+   unpushed work. Both scripts end with a **self-check** — the lane's host serves the site,
+   `/admin` stays on the lane host, and git hooks are present — and exit non-zero if any part
+   fails. Done when the script exits 0 and prints "ready". **Relay every `warning:` and `error:`
+   line to the user verbatim**, even on success; never report a lane ready when the script
+   exited non-zero.
 3. **Work in the lane, one task per lane.** Keep each lane scoped to a single task so its
    branch, DB state, and containers stay coherent; start the next task by resetting the lane,
    not by piling a second task into it.

@@ -148,6 +148,16 @@ ensure_worktree_git_hooks() {
     return 0
   fi
 
+  # Cheapest fix first: copy the main checkout's generated hooks dir. husky's generated
+  # scripts are checkout-independent, and this needs no host npm (often missing from an
+  # agent's non-interactive shell when node comes from nvm).
+  if [[ "$hooks_path" != /* && -n "$(ls -A "$repo_root/$hooks_path" 2>/dev/null)" ]]; then
+    mkdir -p "$resolved"
+    cp -Rp "$repo_root/$hooks_path/." "$resolved/"
+    echo "    git hooks copied from the main checkout's ${hooks_path}"
+    return 0
+  fi
+
   if ! grep -qE '"prepare"[[:space:]]*:' "$dir/package.json"; then
     echo "warning: lane uses core.hooksPath=${hooks_path} but its hooks dir is missing and" >&2
     echo "         package.json has no 'prepare' script to regenerate it — git hooks (e.g." >&2
@@ -246,14 +256,25 @@ if [[ "$uses_env_hosts" -eq 1 ]]; then
   mv "$tmp" "$lane_env"
   echo "    added ${project}.ddev.site to SS_ALLOWED_HOSTS in .env"
 elif [[ "$uses_yaml_hosts" -eq 1 ]]; then
-  # Silverstripe's Config merges arrays across fragments, so listing just the lane host
-  # here is additive — the committed AllowedHosts entries are preserved.
+  # Listing just the lane host is additive ONLY if this fragment loads after the one that
+  # sets the committed AllowedHosts; loaded before it, the committed list overrides the
+  # lane host and every request 400s. So pin After: to that fragment's Name.
   restricts_hosts=1
+  hosts_file="$(git -C "$repo_root" grep -lIE 'AllowedHostsMiddleware' -- "$ss_config_dir" 2>/dev/null | head -1)"
+  hosts_fragment="$(awk '/^Name:/{n=$2} /AllowedHostsMiddleware/{print n; exit}' "$repo_root/$hosts_file" | tr -d "'\"")"
+  after_block=""
+  if [[ -n "$hosts_fragment" ]]; then
+    after_block=$'After:\n  - \'#'"${hosts_fragment}"$'\'\n'
+  else
+    echo "warning: couldn't find the Name: of the config fragment in ${hosts_file} that sets" >&2
+    echo "         AllowedHosts, so lane-local.yml can't be ordered after it — the lane host" >&2
+    echo "         may be overridden. The self-check at the end will catch it if so." >&2
+  fi
   mkdir -p "$lane_dir/$ss_config_dir"
   cat > "$lane_dir/$ss_config_dir/lane-local.yml" <<EOF
 ---
 Name: lane-local-allowedhosts
----
+${after_block}---
 SilverStripe\\Core\\Injector\\Injector:
   SilverStripe\\Control\\Middleware\\AllowedHostsMiddleware:
     properties:
@@ -316,6 +337,45 @@ if [[ "$restricts_hosts" -eq 1 ]]; then
   ddev exec "curl -s -o /dev/null -H 'Host: ${flush_host}' 'http://localhost/?flush=1'" || true
 fi
 
+# Self-check: each trap above fails silently, so prove the lane works before calling it
+# ready. Exits non-zero on any failure so a caller (human or agent) can't miss it.
+lane_self_check() {
+  local host="$1" dir="$2" failed=0 code loc hooks_path resolved
+  echo "==> Self-check"
+  code="$(curl -sk -o /dev/null -w '%{http_code}' "https://${host}/" || true)"
+  if [[ "$code" == 2* || "$code" == 3* ]]; then
+    echo "    ok: https://${host}/ returned ${code}"
+  else
+    echo "error: https://${host}/ returned HTTP ${code} (400 = the lane host isn't in AllowedHosts)." >&2
+    failed=1
+  fi
+  loc="$(curl -sk -o /dev/null -w '%{redirect_url}' "https://${host}/admin" || true)"
+  if [[ -z "$loc" || "$loc" == "https://${host}/"* ]]; then
+    echo "    ok: /admin stays on ${host}"
+  else
+    echo "error: /admin redirects to ${loc} — off the lane host, so CMS edits would hit another" >&2
+    echo "       checkout. Check SS_BASE_URL in .ddev/config.local.yaml." >&2
+    failed=1
+  fi
+  hooks_path="$(git -C "$dir" config --get core.hooksPath 2>/dev/null || true)"
+  if [[ -n "$hooks_path" ]]; then
+    resolved="$hooks_path"
+    [[ "$resolved" = /* ]] || resolved="$dir/$hooks_path"
+    if [[ -n "$(ls -A "$resolved" 2>/dev/null)" ]]; then
+      echo "    ok: git hooks present at ${hooks_path}"
+    else
+      echo "error: git hooks dir ${hooks_path} is empty — commits in this lane skip pre-commit" >&2
+      echo "       checks. Run 'npm run prepare' on the host from inside the lane." >&2
+      failed=1
+    fi
+  fi
+  return "$failed"
+}
+
+if ! lane_self_check "${project}.ddev.site" "$lane_dir"; then
+  echo "==> Lane '${lane}' created at https://${project}.ddev.site but is NOT ready — see the errors above." >&2
+  exit 1
+fi
 echo "==> Lane '${lane}' ready at https://${project}.ddev.site"
 if [[ "$assets" == "none" ]]; then
   echo "    No assets copied — ${assets_dir} starts empty. To add them later:"

@@ -72,12 +72,17 @@ request returns HTTP 400 "Invalid Host"**, because the lane's own `…-wt-a.ddev
 on the list. `create-lane.sh` handles this automatically when it detects host restriction:
 
 - **YAML projects** — it writes an untracked `app/_config/lane-local.yml` adding the lane host.
-  Silverstripe's Config **merges** arrays across fragments, so only the lane host is listed and
-  the committed entries are preserved:
+  Silverstripe's Config merges the lane's list into the committed one **only if the lane
+  fragment loads after it**. Unordered, it can load first and the committed list overrides it,
+  so the lane host silently vanishes and every request 400s. The script therefore finds the
+  `Name:` of the fragment that sets `AllowedHosts` and pins `After:` to it (`reset-lane.sh`
+  adds the `After:` to a lane created without one):
 
   ```yaml
   ---
   Name: lane-local-allowedhosts
+  After:
+    - '#mysite-middleware'   # the Name: of the fragment that sets AllowedHosts
   ---
   SilverStripe\Core\Injector\Injector:
     SilverStripe\Control\Middleware\AllowedHostsMiddleware:
@@ -252,10 +257,13 @@ ignored files), so this is a create-time choice. Override the dir with `LANE_ASS
   commits. Regenerating the dir *inside the DDEV container* fails just as quietly: a
   worktree's `.git` is a file pointing at an absolute host gitdir that isn't mounted in the
   container, so the hook manager's git calls can't resolve the gitdir and it exits
-  silently. `create-lane.sh` (after `npm install`) and `reset-lane.sh` now detect a
-  `core.hooksPath` project and regenerate the hooks **on the host** via `npm run prepare` —
-  where the gitdir path resolves — then verify the dir exists and warn loudly if it still
-  doesn't. Manual escape hatch for a lane created before this, or when the scripts warn:
+  silently. `create-lane.sh` (after `npm install`) and `reset-lane.sh` detect a
+  `core.hooksPath` project and first **copy the main checkout's generated hooks dir** —
+  husky's generated scripts only reference each other by relative path, so they work in any
+  checkout, and this needs no host `npm` (often missing from an agent's non-interactive shell
+  when node comes via nvm). Only if main has no hooks dir do they fall back to `npm run
+  prepare` **on the host**, where the gitdir path resolves. The final self-check fails the
+  script if the hooks dir is still empty. Manual escape hatch for a lane created before this, or when the scripts warn:
   run the prepare step on the **host** (not `ddev exec`) from inside the lane:
 
   ```bash

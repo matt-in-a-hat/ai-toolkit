@@ -80,6 +80,14 @@ ensure_worktree_git_hooks() {
     return 0
   fi
 
+  # Copy the main checkout's generated hooks dir first — needs no host npm (see create-lane.sh).
+  if [[ "$hooks_path" != /* && -n "$(ls -A "$repo_root/$hooks_path" 2>/dev/null)" ]]; then
+    mkdir -p "$resolved"
+    cp -Rp "$repo_root/$hooks_path/." "$resolved/"
+    echo "    git hooks copied from the main checkout's ${hooks_path}"
+    return 0
+  fi
+
   if ! grep -qE '"prepare"[[:space:]]*:' "$dir/package.json"; then
     echo "warning: lane uses core.hooksPath=${hooks_path} but its hooks dir is missing and" >&2
     echo "         package.json has no 'prepare' script to regenerate it — git hooks (e.g." >&2
@@ -135,6 +143,20 @@ git switch -C "$lane_branch" "$base"
 # both explicitly so a reset never strips the lane's project name or host whitelist.
 git clean -fd -e .ddev/config.local.yaml -e "$ss_config_dir/lane-local.yml"
 
+# Repair a host fragment written without After: (older create-lane.sh). Unordered, it can
+# load before the committed AllowedHosts fragment and be overridden — every request 400s.
+lane_fragment="$ss_config_dir/lane-local.yml"
+if [[ -f "$lane_fragment" ]] && ! grep -q '^After:' "$lane_fragment"; then
+  hosts_file="$(git -C "$repo_root" grep -lIE 'AllowedHostsMiddleware' -- "$ss_config_dir" 2>/dev/null | head -1)"
+  hosts_fragment="$(awk '/^Name:/{n=$2} /AllowedHostsMiddleware/{print n; exit}' "$repo_root/$hosts_file" | tr -d "'\"")"
+  if [[ -n "$hosts_fragment" ]]; then
+    tmp="$(mktemp)"
+    awk -v f="$hosts_fragment" '{print} /^Name: lane-local-allowedhosts/{print "After:"; print "  - '\''#" f "'\''"}' "$lane_fragment" > "$tmp"
+    mv "$tmp" "$lane_fragment"
+    echo "    ordered $lane_fragment after '#${hosts_fragment}'"
+  fi
+fi
+
 if [[ -f "$db" ]]; then
   echo "==> Re-importing DB from $db"
   ddev import-db --file="$db"
@@ -154,4 +176,44 @@ fi
 # Repair git hooks if the reset (or a pre-fix lane) left them unwired.
 ensure_worktree_git_hooks "$lane_dir"
 
+# Self-check (mirrors create-lane.sh): prove the lane works, and exit non-zero if not.
+lane_self_check() {
+  local host="$1" dir="$2" failed=0 code loc hooks_path resolved
+  echo "==> Self-check"
+  code="$(curl -sk -o /dev/null -w '%{http_code}' "https://${host}/" || true)"
+  if [[ "$code" == 2* || "$code" == 3* ]]; then
+    echo "    ok: https://${host}/ returned ${code}"
+  else
+    echo "error: https://${host}/ returned HTTP ${code} (400 = the lane host isn't in AllowedHosts)." >&2
+    failed=1
+  fi
+  loc="$(curl -sk -o /dev/null -w '%{redirect_url}' "https://${host}/admin" || true)"
+  if [[ -z "$loc" || "$loc" == "https://${host}/"* ]]; then
+    echo "    ok: /admin stays on ${host}"
+  else
+    echo "error: /admin redirects to ${loc} — off the lane host, so CMS edits would hit another" >&2
+    echo "       checkout. Check SS_BASE_URL in .ddev/config.local.yaml." >&2
+    failed=1
+  fi
+  hooks_path="$(git -C "$dir" config --get core.hooksPath 2>/dev/null || true)"
+  if [[ -n "$hooks_path" ]]; then
+    resolved="$hooks_path"
+    [[ "$resolved" = /* ]] || resolved="$dir/$hooks_path"
+    if [[ -n "$(ls -A "$resolved" 2>/dev/null)" ]]; then
+      echo "    ok: git hooks present at ${hooks_path}"
+    else
+      echo "error: git hooks dir ${hooks_path} is empty — commits in this lane skip pre-commit" >&2
+      echo "       checks. Run 'npm run prepare' on the host from inside the lane." >&2
+      failed=1
+    fi
+  fi
+  return "$failed"
+}
+
+project="$(sed -nE 's/^[[:space:]]*name:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p' .ddev/config.local.yaml 2>/dev/null | head -1)"
+project="${project:-${repo_name}-wt-${lane}}"
+if ! lane_self_check "${project}.ddev.site" "$lane_dir"; then
+  echo "==> Lane '${lane}' reset onto ${base} but is NOT ready — see the errors above." >&2
+  exit 1
+fi
 echo "==> Lane '${lane}' reset onto ${base} and ready"
